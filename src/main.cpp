@@ -24,6 +24,10 @@ String deviceLocation = "Living Room";
 const char* mqtt_server = "8.153.160.138";
 const char* mqtt_client_id = "jokker";
 
+// AP 配置
+const char* ap_ssid = "ESP32-配置";                    // AP 名称
+const char* ap_password = "12345678";                 // AP 密码
+
 // MQTT 主题（动态生成）
 String state_topic;
 String command_topic;
@@ -171,7 +175,7 @@ bool checkBootLongPress() {
 void startAPMode() {
   Serial.println("启动AP模式...");
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("ESP32-配置", "12345678");
+  WiFi.softAP(ap_ssid, ap_password);
   Serial.print("AP IP地址: ");
   Serial.println(WiFi.softAPIP());
 
@@ -197,7 +201,7 @@ void startAPMode() {
     "<h2>WiFi 配置页面</h2>"
     "<form method='POST' action='/save'>"
     "<input name='ssid' placeholder='WiFi 名称 (SSID)' required>"
-    "<input name='pass' type='password' placeholder='WiFi 密码' required>"
+    "<input name='pass' placeholder='WiFi 密码' required>"
     "<input name='name' placeholder='设备名称' value='" + deviceName + "'>"
     "<input name='location' placeholder='设备位置' value='" + deviceLocation + "'>"
     "<input name='description' placeholder='设备描述' value='" + deviceDescription + "'>"
