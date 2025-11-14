@@ -15,18 +15,18 @@ String ssidSaved = "";
 String passSaved = "";
 bool shouldEnterAP = false;
 
-// 设备信息
-String deviceName = "New Device";
-String entityName = "Entity Name";                // HA 中代表一个具体功能或状态的基本单位，例如一盏灯、一个传感器。
+// 设备信息 - 使用唯一标识
+String deviceName = "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4);
+String entityName = "Relay Switch";                // HA 中代表一个具体功能或状态的基本单位，例如一盏灯、一个传感器。
 String deviceLocation = "Living Room";      
 
-// MQTT 配置
-const char* mqtt_server = "8.153.160.138";
-const char* mqtt_client_id = "jokker";
+// MQTT 配置 - 使用唯一Client ID
+String mqtt_server = "8.153.160.138";
+String mqtt_client_id = "relay_" + String((uint32_t)ESP.getEfuseMac(), HEX);  // MQTT 协议规定：相同的 Client ID 不能同时在线
 
-// AP 配置
-const char* ap_ssid = "ESP32-配置";                    // AP 名称
-const char* ap_password = "12345678";                 // AP 密码
+// AP 配置 - 使用唯一AP名称
+String ap_ssid = "ESP32-Relay-" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4);
+String ap_password = "12345678";
 
 // MQTT 主题（动态生成）
 String state_topic;
@@ -74,31 +74,28 @@ void saveDeviceConfig(const String &name, const String &description, const Strin
 
 void loadDeviceConfig() {
   prefs.begin("device", true);
-  deviceName = prefs.getString("name", "Unknow Device");
-  entityName = prefs.getString("description", "Switch Device");
+  deviceName = prefs.getString("name", "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4));
+  entityName = prefs.getString("description", "Relay Switch");
   deviceLocation = prefs.getString("location", "Unknow Location");  // 添加位置加载
   prefs.end();
 }
 
-// 获取格式化的MAC地址（去掉冒号，小写）
-String getMacAddress() {
-  String mac = WiFi.macAddress();
-  mac.replace(":", "");
-  mac.toLowerCase();
-  return mac;
+// 获取唯一标识符
+String getUniqueID() {
+  return "relay_" + String((uint32_t)ESP.getEfuseMac(), HEX);
 }
 
-String getUniqueID() {
-  return "relay_" + getMacAddress();
+String getShortID() {
+  return String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 6);
 }
 
 // 初始化MQTT主题
 void setupTopics() {
-  String mac = getMacAddress();
-  state_topic = "homeassistant/switch/" + mac + "/state";
-  command_topic = "homeassistant/switch/" + mac + "/command";
-  availability_topic = "homeassistant/switch/" + mac + "/availability";
-  ha_config_topic = "homeassistant/switch/" + mac + "/config";
+  String uid = getShortID();
+  state_topic = "homeassistant/switch/relay_" + uid + "/state";
+  command_topic = "homeassistant/switch/relay_" + uid + "/command";
+  availability_topic = "homeassistant/switch/relay_" + uid + "/availability";
+  ha_config_topic = "homeassistant/switch/relay_" + uid + "/config";
   
   Serial.println("MQTT主题配置:");
   Serial.println("  状态主题: " + state_topic);
@@ -174,9 +171,9 @@ bool checkBootLongPress() {
 // AP 配网模式
 // =========================
 void startAPMode() {
-  Serial.println("启动AP模式...");
+  Serial.println("启动AP模式: " + ap_ssid);
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(ap_ssid, ap_password);
+  WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
   Serial.print("AP IP地址: ");
   Serial.println(WiFi.softAPIP());
 
@@ -185,7 +182,7 @@ void startAPMode() {
     "<!DOCTYPE html><html><head>"
     "<meta charset='UTF-8'>"
     "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-    "<title>ESP32 WiFi配置</title>"
+    "<title>ESP32 Relay配置 - " + getShortID() + "</title>"
     "<style>"
     "body{font-family:'Microsoft YaHei',Arial,sans-serif;background:#f2f2f2;text-align:center;padding-top:60px;}"
     ".card{background:white;margin:0 auto;padding:25px;border-radius:10px;max-width:350px;"
@@ -199,7 +196,8 @@ void startAPMode() {
     ".info{color:#666;font-size:12px;margin-top:10px;}"
     "</style></head><body>"
     "<div class='card'>"
-    "<h2>WiFi 配置页面</h2>"
+    "<h2>ESP32 Relay 配置</h2>"
+    "<p style='color:#666;font-size:14px;'>设备ID: " + getShortID() + "</p>"
     "<form method='POST' action='/save'>"
     "<input name='ssid' placeholder='WiFi 名称 (SSID)' required>"
     "<input name='pass' placeholder='WiFi 密码' required>"
@@ -208,6 +206,7 @@ void startAPMode() {
     "<input name='description' placeholder='实体名称' value='" + entityName + "'>"
     "<button type='submit'>保存并重启</button>"
     "<p class='info'>设备MAC地址: " + WiFi.macAddress() + "</p>"
+    "<p class='info'>设备唯一ID: " + getUniqueID() + "</p>"
     "</form></div></body></html>";
 
   server.on("/", HTTP_GET, [htmlPage]() {
@@ -299,7 +298,7 @@ void reconnectMQTT() {
   while (!mqttClient.connected()) {
     Serial.print("尝试连接MQTT服务器...");
     
-    if (mqttClient.connect(mqtt_client_id, availability_topic.c_str(), 0, true, "offline")) {
+    if (mqttClient.connect(mqtt_client_id.c_str(), availability_topic.c_str(), 0, true, "offline")) {
       Serial.println("MQTT连接成功!");
       
       // 订阅命令主题
@@ -370,6 +369,8 @@ void setup() {
   delay(1000);
   
   Serial.println("\n=== ESP32 MQTT 继电器启动 ===");
+  Serial.println("设备唯一ID: " + getUniqueID());
+  Serial.println("短ID: " + getShortID());
   
   pinMode(BOOT_PIN, INPUT_PULLUP);
   pinMode(RELAY_PIN, OUTPUT);
@@ -382,8 +383,10 @@ void setup() {
   Serial.println("设备信息:");
   Serial.println("  MAC地址: " + WiFi.macAddress());
   Serial.println("  设备名: " + deviceName);
-  Serial.println("  描述: " + entityName);
+  Serial.println("  实体名: " + entityName);
   Serial.println("  位置: " + deviceLocation);
+  Serial.println("  MQTT Client ID: " + mqtt_client_id);
+  Serial.println("  AP名称: " + ap_ssid);
 
   // 检查是否进入配网模式
   if (checkBootLongPress() || ssidSaved == "" || passSaved == "") {
@@ -397,7 +400,7 @@ void setup() {
     setupTopics();
     
     // 设置MQTT
-    mqttClient.setServer(mqtt_server, 1883);
+    mqttClient.setServer(mqtt_server.c_str(), 1883);
     mqttClient.setCallback(mqttCallback);
     mqttClient.setBufferSize(2048); // 增加缓冲区大小
     
