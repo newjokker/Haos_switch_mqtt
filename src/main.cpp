@@ -16,8 +16,8 @@ String passSaved = "";
 bool shouldEnterAP = false;
 
 // 设备信息
-String locationName = "UnknownRoom";
-String deviceDescription = "MQTT Relay Device";
+String locationName = "Unknow Location";
+String deviceDescription = "MQTT Switch Device";
 
 // MQTT 配置
 const char* mqtt_server = "8.153.160.138";
@@ -66,8 +66,8 @@ void saveDeviceConfig(const String &location, const String &description) {
 
 void loadDeviceConfig() {
   prefs.begin("device", true);
-  locationName = prefs.getString("location", "UnknownRoom");
-  deviceDescription = prefs.getString("description", "MQTT Relay Device");
+  locationName = prefs.getString("location", "Unknow Location");
+  deviceDescription = prefs.getString("description", "Switch Device");
   prefs.end();
 }
 
@@ -105,14 +105,14 @@ String generateHADiscoveryConfig() {
   JsonObject device = doc.createNestedObject("device");
   device["identifiers"][0] = uid;
   device["name"] = locationName;
-  device["manufacturer"] = "CustomMQTTDevice";
-  device["model"] = "MQTTRelayV1";
+  device["manufacturer"] = "selfmade switch";
+  device["model"] = "MQTT switch";
   device["sw_version"] = "1.0";
   
   String configPayload;
   serializeJson(doc, configPayload);
   
-  Serial.println("Generated HA Discovery Config:");
+  Serial.println("生成的HA自动发现配置:");
   Serial.println(configPayload);
   
   return configPayload;
@@ -138,38 +138,49 @@ bool checkBootLongPress() {
 // AP 配网模式
 // =========================
 void startAPMode() {
-  Serial.println("Starting AP mode...");
+  Serial.println("启动AP模式...");
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("ESP32-Setup", "12345678");
-  Serial.print("AP IP: ");
+  WiFi.softAP("ESP32-配置", "12345678");
+  Serial.print("AP IP地址: ");
   Serial.println(WiFi.softAPIP());
 
+  // 设置UTF-8编码支持中文
   String htmlPage = 
     "<!DOCTYPE html><html><head>"
+    "<meta charset='UTF-8'>"
     "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<title>ESP32 WiFi配置</title>"
     "<style>"
-    "body{font-family:Arial;background:#f2f2f2;text-align:center;padding-top:60px;}"
-    ".card{background:white;margin:0 auto;padding:25px;border-radius:10px;max-width:320px;"
+    "body{font-family:'Microsoft YaHei',Arial,sans-serif;background:#f2f2f2;text-align:center;padding-top:60px;}"
+    ".card{background:white;margin:0 auto;padding:25px;border-radius:10px;max-width:350px;"
     "box-shadow:0 0 10px rgba(0,0,0,0.15);}"
-    "input{width:100%;padding:10px;margin-top:10px;border-radius:5px;border:1px solid #ccc;}"
-    "button{margin-top:15px;padding:10px 20px;width:100%;background:#007BFF;color:white;"
-    "border:none;border-radius:5px;font-size:16px;}"
+    "h2{color:#333;margin-bottom:20px;}"
+    "input{width:100%;padding:12px;margin-top:15px;border-radius:5px;border:1px solid #ccc;"
+    "box-sizing:border-box;font-size:14px;}"
+    "button{margin-top:20px;padding:12px;width:100%;background:#007BFF;color:white;"
+    "border:none;border-radius:5px;font-size:16px;cursor:pointer;}"
+    "button:hover{background:#0056b3;}"
+    ".info{color:#666;font-size:12px;margin-top:10px;}"
     "</style></head><body>"
     "<div class='card'>"
-    "<h2>WiFi 配置</h2>"
+    "<h2>WiFi 配置页面</h2>"
     "<form method='POST' action='/save'>"
     "<input name='ssid' placeholder='WiFi 名称 (SSID)' required>"
     "<input name='pass' type='password' placeholder='WiFi 密码' required>"
     "<input name='location' placeholder='设备位置' value='" + locationName + "'>"
     "<input name='description' placeholder='设备描述' value='" + deviceDescription + "'>"
     "<button type='submit'>保存并重启</button>"
+    "<p class='info'>设备MAC地址: " + WiFi.macAddress() + "</p>"
     "</form></div></body></html>";
 
   server.on("/", HTTP_GET, [htmlPage]() {
-    server.send(200, "text/html", htmlPage);
+    server.send(200, "text/html; charset=UTF-8", htmlPage);
   });
 
   server.on("/save", HTTP_POST, []() {
+    // 设置UTF-8编码
+    server.sendHeader("Content-Type", "text/html; charset=UTF-8");
+    
     String ssid = server.arg("ssid");
     String pass = server.arg("pass");
     String location = server.arg("location");
@@ -178,18 +189,40 @@ void startAPMode() {
     if (ssid.length() > 0 && pass.length() > 0) {
       saveWifiConfig(ssid, pass);
       saveDeviceConfig(location, description);
-      server.send(200, "text/html", 
-        "<html><body><h2>配置保存成功!</h2><p>设备即将重启...</p></body></html>");
-      delay(2000);
+      
+      String successPage = 
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+        "<title>配置成功</title><style>"
+        "body{font-family:'Microsoft YaHei',Arial,sans-serif;text-align:center;padding-top:100px;}"
+        "</style></head><body>"
+        "<h2>✅ 配置保存成功!</h2>"
+        "<p>设备即将重启并连接WiFi...</p>"
+        "<p>SSID: " + ssid + "</p>"
+        "<p>位置: " + location + "</p>"
+        "<p>描述: " + description + "</p>"
+        "</body></html>";
+      
+      server.send(200, "text/html; charset=UTF-8", successPage);
+      Serial.println("配置保存成功，准备重启...");
+      delay(3000);
       ESP.restart();
     } else {
-      server.send(400, "text/html", 
-        "<html><body><h2>错误!</h2><p>SSID 和密码不能为空</p></body></html>");
+      String errorPage = 
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+        "<title>错误</title><style>"
+        "body{font-family:'Microsoft YaHei',Arial,sans-serif;text-align:center;padding-top:100px;}"
+        "</style></head><body>"
+        "<h2>❌ 错误!</h2>"
+        "<p>WiFi名称和密码不能为空</p>"
+        "<p><a href='/'>返回重新配置</a></p>"
+        "</body></html>";
+      
+      server.send(400, "text/html; charset=UTF-8", errorPage);
     }
   });
 
   server.begin();
-  Serial.println("HTTP server started");
+  Serial.println("HTTP服务器已启动");
 }
 
 // =========================
@@ -202,17 +235,17 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   msg.trim();
   
-  Serial.printf("MQTT 收到消息 [%s]: %s\n", topic, msg.c_str());
+  Serial.printf("MQTT收到消息 [%s]: %s\n", topic, msg.c_str());
 
   if (String(topic) == command_topic) {
     if (msg == "ON") {
       digitalWrite(RELAY_PIN, HIGH);
       relayState = true;
-      Serial.println("继电器: ON");
+      Serial.println("继电器状态: 开启");
     } else if (msg == "OFF") {
       digitalWrite(RELAY_PIN, LOW);
       relayState = false;
-      Serial.println("继电器: OFF");
+      Serial.println("继电器状态: 关闭");
     }
     
     // 发布状态更新
@@ -225,10 +258,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 // =========================
 void reconnectMQTT() {
   while (!mqttClient.connected()) {
-    Serial.print("尝试连接 MQTT...");
+    Serial.print("尝试连接MQTT服务器...");
     
     if (mqttClient.connect(mqtt_client_id, availability_topic, 0, true, "offline")) {
-      Serial.println("MQTT 连接成功!");
+      Serial.println("MQTT连接成功!");
       
       // 订阅命令主题
       mqttClient.subscribe(command_topic);
@@ -240,18 +273,18 @@ void reconnectMQTT() {
       // 发布 Home Assistant 自动发现配置
       String configPayload = generateHADiscoveryConfig();
       if (mqttClient.publish(ha_config_topic, configPayload.c_str(), true)) {
-        Serial.println("HA 自动发现配置发布成功!");
+        Serial.println("Home Assistant自动发现配置发布成功!");
       } else {
-        Serial.println("HA 自动发现配置发布失败!");
+        Serial.println("Home Assistant自动发现配置发布失败!");
       }
       
       // 发布当前状态
       mqttClient.publish(state_topic, relayState ? "ON" : "OFF", true);
       
     } else {
-      Serial.print("MQTT 连接失败, rc=");
+      Serial.print("MQTT连接失败, 错误代码=");
       Serial.print(mqttClient.state());
-      Serial.println(" 5秒后重试...");
+      Serial.println("，5秒后重试...");
       delay(5000);
     }
   }
@@ -261,21 +294,21 @@ void reconnectMQTT() {
 // WiFi 连接
 // =========================
 void connectWiFi() {
-  Serial.printf("连接 WiFi: %s\n", ssidSaved.c_str());
+  Serial.printf("正在连接WiFi: %s\n", ssidSaved.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssidSaved.c_str(), passSaved.c_str());
 
   unsigned long startTime = millis();
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - startTime > 30000) { // 30秒超时
-      Serial.println("WiFi 连接超时，进入 AP 模式");
+      Serial.println("WiFi连接超时，进入AP模式");
       clearWifiConfig();
       ESP.restart();
       return;
     }
     
     if (checkBootLongPress()) {
-      Serial.println("检测到 BOOT 长按，进入 AP 模式");
+      Serial.println("检测到BOOT按钮长按，进入AP模式");
       clearWifiConfig();
       ESP.restart();
       return;
@@ -286,7 +319,7 @@ void connectWiFi() {
   }
   
   Serial.println();
-  Serial.print("WiFi 连接成功! IP: ");
+  Serial.print("✅ WiFi连接成功! IP地址: ");
   Serial.println(WiFi.localIP());
 }
 
@@ -308,19 +341,19 @@ void setup() {
   loadDeviceConfig();
   
   Serial.println("设备信息:");
-  Serial.println("  MAC: " + WiFi.macAddress());
+  Serial.println("  MAC地址: " + WiFi.macAddress());
   Serial.println("  位置: " + locationName);
   Serial.println("  描述: " + deviceDescription);
 
   // 检查是否进入配网模式
   if (checkBootLongPress() || ssidSaved == "" || passSaved == "") {
-    Serial.println("进入 AP 配网模式");
+    Serial.println("进入AP配网模式");
     shouldEnterAP = true;
     startAPMode();
   } else {
     connectWiFi();
     
-    // 设置 MQTT
+    // 设置MQTT
     mqttClient.setServer(mqtt_server, 1883);
     mqttClient.setCallback(mqttCallback);
     mqttClient.setBufferSize(2048); // 增加缓冲区大小
@@ -335,7 +368,7 @@ void loop() {
     return;
   }
 
-  // 处理 MQTT
+  // 处理MQTT
   if (!mqttClient.connected()) {
     reconnectMQTT();
   }
@@ -348,9 +381,9 @@ void loop() {
     Serial.println("上报在线状态");
   }
 
-  // 检查 BOOT 长按
+  // 检查BOOT长按
   if (checkBootLongPress()) {
-    Serial.println("检测到 BOOT 长按，清除配置并重启");
+    Serial.println("检测到BOOT按钮长按，清除配置并重启");
     clearWifiConfig();
     delay(1000);
     ESP.restart();
