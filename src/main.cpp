@@ -17,7 +17,7 @@ bool shouldEnterAP = false;
 
 // 设备信息
 String deviceName = "New Device";
-String deviceDescription = "MQTT Switch Device";
+String entityName = "Entity Name";                // HA 中代表一个具体功能或状态的基本单位，例如一盏灯、一个传感器。
 String deviceLocation = "Living Room";      
 
 // MQTT 配置
@@ -75,7 +75,7 @@ void saveDeviceConfig(const String &name, const String &description, const Strin
 void loadDeviceConfig() {
   prefs.begin("device", true);
   deviceName = prefs.getString("name", "Unknow Device");
-  deviceDescription = prefs.getString("description", "Switch Device");
+  entityName = prefs.getString("description", "Switch Device");
   deviceLocation = prefs.getString("location", "Unknow Location");  // 添加位置加载
   prefs.end();
 }
@@ -117,7 +117,7 @@ String generateHADiscoveryConfig() {
   DynamicJsonDocument doc(1024);
   
   // 基本配置
-  doc["name"] = deviceDescription;
+  doc["name"] = entityName;                                // 实体名称（书房温度，书房湿度）
   doc["unique_id"] = uid;
   doc["state_topic"] = state_topic;
   doc["command_topic"] = command_topic;
@@ -134,7 +134,7 @@ String generateHADiscoveryConfig() {
   // 设备信息
   JsonObject device = doc.createNestedObject("device");
   device["identifiers"][0] = uid;
-  device["name"] = deviceName;
+  device["name"] = deviceName;                                    // 设备名称（ESP32环境监测仪）
   device["manufacturer"] = "selfmade switch";
   device["model"] = "MQTT switch";
   device["sw_version"] = "1.0";
@@ -142,6 +142,7 @@ String generateHADiscoveryConfig() {
   // 添加位置信息（可选）
   if (deviceLocation != "Unknow Location") {
     device["suggested_area"] = deviceLocation;  // 用于Home Assistant的区域识别
+    doc["area"] = deviceLocation;
   }
   
   String configPayload;
@@ -204,7 +205,7 @@ void startAPMode() {
     "<input name='pass' placeholder='WiFi 密码' required>"
     "<input name='name' placeholder='设备名称' value='" + deviceName + "'>"
     "<input name='location' placeholder='设备位置' value='" + deviceLocation + "'>"
-    "<input name='description' placeholder='设备描述' value='" + deviceDescription + "'>"
+    "<input name='description' placeholder='实体名称' value='" + entityName + "'>"
     "<button type='submit'>保存并重启</button>"
     "<p class='info'>设备MAC地址: " + WiFi.macAddress() + "</p>"
     "</form></div></body></html>";
@@ -381,7 +382,7 @@ void setup() {
   Serial.println("设备信息:");
   Serial.println("  MAC地址: " + WiFi.macAddress());
   Serial.println("  设备名: " + deviceName);
-  Serial.println("  描述: " + deviceDescription);
+  Serial.println("  描述: " + entityName);
   Serial.println("  位置: " + deviceLocation);
 
   // 检查是否进入配网模式
