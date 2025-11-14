@@ -18,6 +18,7 @@ bool shouldEnterAP = false;
 // 设备信息
 String deviceName = "New Device";
 String deviceDescription = "MQTT Switch Device";
+String deviceLocation = "Living Room";      
 
 // MQTT 配置
 const char* mqtt_server = "8.153.160.138";
@@ -59,17 +60,19 @@ void clearWifiConfig() {
   prefs.end();
 }
 
-void saveDeviceConfig(const String &location, const String &description) {
+void saveDeviceConfig(const String &name, const String &description, const String &location) {
   prefs.begin("device", false);
-  prefs.putString("location", location);
+  prefs.putString("name", name);
   prefs.putString("description", description);
+  prefs.putString("location", location);  // 添加位置保存
   prefs.end();
 }
 
 void loadDeviceConfig() {
   prefs.begin("device", true);
-  deviceName = prefs.getString("location", "Unknow Location");
+  deviceName = prefs.getString("name", "Unknow Device");
   deviceDescription = prefs.getString("description", "Switch Device");
+  deviceLocation = prefs.getString("location", "Unknow Location");  // 添加位置加载
   prefs.end();
 }
 
@@ -132,6 +135,11 @@ String generateHADiscoveryConfig() {
   device["model"] = "MQTT switch";
   device["sw_version"] = "1.0";
   
+  // 添加位置信息（可选）
+  if (deviceLocation != "Unknow Location") {
+    device["suggested_area"] = deviceLocation;  // 用于Home Assistant的区域识别
+  }
+  
   String configPayload;
   serializeJson(doc, configPayload);
   
@@ -190,7 +198,8 @@ void startAPMode() {
     "<form method='POST' action='/save'>"
     "<input name='ssid' placeholder='WiFi 名称 (SSID)' required>"
     "<input name='pass' type='password' placeholder='WiFi 密码' required>"
-    "<input name='location' placeholder='设备名' value='" + deviceName + "'>"
+    "<input name='name' placeholder='设备名称' value='" + deviceName + "'>"
+    "<input name='location' placeholder='设备位置' value='" + deviceLocation + "'>"
     "<input name='description' placeholder='设备描述' value='" + deviceDescription + "'>"
     "<button type='submit'>保存并重启</button>"
     "<p class='info'>设备MAC地址: " + WiFi.macAddress() + "</p>"
@@ -206,12 +215,13 @@ void startAPMode() {
     
     String ssid = server.arg("ssid");
     String pass = server.arg("pass");
-    String location = server.arg("location");
+    String name = server.arg("name");
     String description = server.arg("description");
+    String location = server.arg("location");
     
     if (ssid.length() > 0 && pass.length() > 0) {
       saveWifiConfig(ssid, pass);
-      saveDeviceConfig(location, description);
+      saveDeviceConfig(name, description, location);
       
       String successPage = 
         "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
@@ -221,8 +231,9 @@ void startAPMode() {
         "<h2>✅ 配置保存成功!</h2>"
         "<p>设备即将重启并连接WiFi...</p>"
         "<p>SSID: " + ssid + "</p>"
-        "<p>位置: " + location + "</p>"
+        "<p>设备名: " + name + "</p>"
         "<p>描述: " + description + "</p>"
+        "<p>位置: " + location + "</p>"
         "</body></html>";
       
       server.send(200, "text/html; charset=UTF-8", successPage);
@@ -365,8 +376,9 @@ void setup() {
   
   Serial.println("设备信息:");
   Serial.println("  MAC地址: " + WiFi.macAddress());
-  Serial.println("  位置: " + deviceName);
+  Serial.println("  设备名: " + deviceName);
   Serial.println("  描述: " + deviceDescription);
+  Serial.println("  位置: " + deviceLocation);
 
   // 检查是否进入配网模式
   if (checkBootLongPress() || ssidSaved == "" || passSaved == "") {
