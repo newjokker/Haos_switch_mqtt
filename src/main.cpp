@@ -21,11 +21,13 @@ String deviceDescription = "MQTT Switch Device";
 
 // MQTT 配置
 const char* mqtt_server = "8.153.160.138";
-const char* mqtt_client_id = "lvdi_desktop_relay";
-const char* state_topic = "lvdi/jokker_desktop/relay/state";
-const char* command_topic = "lvdi/jokker_desktop/relay/command";
-const char* availability_topic = "lvdi/jokker_desktop/relay/availability";
-const char* ha_config_topic = "homeassistant/switch/lvdi_jokker_desktop_relay/config";
+const char* mqtt_client_id = "jokker";
+
+// 
+const char* state_topic = "homeassistant/switch/mac_address/state";
+const char* command_topic = "homeassistant/switch/mac_address/command";
+const char* availability_topic = "homeassistant/switch/mac_address/availability";
+const char* ha_config_topic = "homeassistant/switch/mac_address/config";
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
