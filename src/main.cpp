@@ -16,18 +16,18 @@ String passSaved = "";
 bool shouldEnterAP = false;
 
 // 设备信息
-String locationName = "Unknow Location";
+String deviceName = "New Device";
 String deviceDescription = "MQTT Switch Device";
 
 // MQTT 配置
 const char* mqtt_server = "8.153.160.138";
 const char* mqtt_client_id = "jokker";
 
-// 
-const char* state_topic = "homeassistant/switch/mac_address/state";
-const char* command_topic = "homeassistant/switch/mac_address/command";
-const char* availability_topic = "homeassistant/switch/mac_address/availability";
-const char* ha_config_topic = "homeassistant/switch/mac_address/config";
+// MQTT 主题（动态生成）
+String state_topic;
+String command_topic;
+String availability_topic;
+String ha_config_topic;
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -68,15 +68,36 @@ void saveDeviceConfig(const String &location, const String &description) {
 
 void loadDeviceConfig() {
   prefs.begin("device", true);
-  locationName = prefs.getString("location", "Unknow Location");
+  deviceName = prefs.getString("location", "Unknow Location");
   deviceDescription = prefs.getString("description", "Switch Device");
   prefs.end();
 }
 
-String getUniqueID() {
+// 获取格式化的MAC地址（去掉冒号，小写）
+String getMacAddress() {
   String mac = WiFi.macAddress();
   mac.replace(":", "");
-  return "relay_" + mac;
+  mac.toLowerCase();
+  return mac;
+}
+
+String getUniqueID() {
+  return "relay_" + getMacAddress();
+}
+
+// 初始化MQTT主题
+void setupTopics() {
+  String mac = getMacAddress();
+  state_topic = "homeassistant/switch/" + mac + "/state";
+  command_topic = "homeassistant/switch/" + mac + "/command";
+  availability_topic = "homeassistant/switch/" + mac + "/availability";
+  ha_config_topic = "homeassistant/switch/" + mac + "/config";
+  
+  Serial.println("MQTT主题配置:");
+  Serial.println("  状态主题: " + state_topic);
+  Serial.println("  命令主题: " + command_topic);
+  Serial.println("  可用性主题: " + availability_topic);
+  Serial.println("  配置主题: " + ha_config_topic);
 }
 
 // =========================
@@ -106,7 +127,7 @@ String generateHADiscoveryConfig() {
   // 设备信息
   JsonObject device = doc.createNestedObject("device");
   device["identifiers"][0] = uid;
-  device["name"] = locationName;
+  device["name"] = deviceName;
   device["manufacturer"] = "selfmade switch";
   device["model"] = "MQTT switch";
   device["sw_version"] = "1.0";
@@ -169,7 +190,7 @@ void startAPMode() {
     "<form method='POST' action='/save'>"
     "<input name='ssid' placeholder='WiFi 名称 (SSID)' required>"
     "<input name='pass' type='password' placeholder='WiFi 密码' required>"
-    "<input name='location' placeholder='设备位置' value='" + locationName + "'>"
+    "<input name='location' placeholder='设备名' value='" + deviceName + "'>"
     "<input name='description' placeholder='设备描述' value='" + deviceDescription + "'>"
     "<button type='submit'>保存并重启</button>"
     "<p class='info'>设备MAC地址: " + WiFi.macAddress() + "</p>"
@@ -251,7 +272,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
     
     // 发布状态更新
-    mqttClient.publish(state_topic, relayState ? "ON" : "OFF", true);
+    mqttClient.publish(state_topic.c_str(), relayState ? "ON" : "OFF", true);
   }
 }
 
@@ -262,26 +283,26 @@ void reconnectMQTT() {
   while (!mqttClient.connected()) {
     Serial.print("尝试连接MQTT服务器...");
     
-    if (mqttClient.connect(mqtt_client_id, availability_topic, 0, true, "offline")) {
+    if (mqttClient.connect(mqtt_client_id, availability_topic.c_str(), 0, true, "offline")) {
       Serial.println("MQTT连接成功!");
       
       // 订阅命令主题
-      mqttClient.subscribe(command_topic);
-      Serial.println("已订阅命令主题: " + String(command_topic));
+      mqttClient.subscribe(command_topic.c_str());
+      Serial.println("已订阅命令主题: " + command_topic);
       
       // 发布在线状态
-      mqttClient.publish(availability_topic, "online", true);
+      mqttClient.publish(availability_topic.c_str(), "online", true);
       
       // 发布 Home Assistant 自动发现配置
       String configPayload = generateHADiscoveryConfig();
-      if (mqttClient.publish(ha_config_topic, configPayload.c_str(), true)) {
+      if (mqttClient.publish(ha_config_topic.c_str(), configPayload.c_str(), true)) {
         Serial.println("Home Assistant自动发现配置发布成功!");
       } else {
         Serial.println("Home Assistant自动发现配置发布失败!");
       }
       
       // 发布当前状态
-      mqttClient.publish(state_topic, relayState ? "ON" : "OFF", true);
+      mqttClient.publish(state_topic.c_str(), relayState ? "ON" : "OFF", true);
       
     } else {
       Serial.print("MQTT连接失败, 错误代码=");
@@ -344,7 +365,7 @@ void setup() {
   
   Serial.println("设备信息:");
   Serial.println("  MAC地址: " + WiFi.macAddress());
-  Serial.println("  位置: " + locationName);
+  Serial.println("  位置: " + deviceName);
   Serial.println("  描述: " + deviceDescription);
 
   // 检查是否进入配网模式
@@ -354,6 +375,9 @@ void setup() {
     startAPMode();
   } else {
     connectWiFi();
+    
+    // 初始化MQTT主题（在WiFi连接后调用）
+    setupTopics();
     
     // 设置MQTT
     mqttClient.setServer(mqtt_server, 1883);
@@ -378,7 +402,7 @@ void loop() {
 
   // 定期上报在线状态
   if (millis() - lastAvailabilityReport > AVAILABILITY_INTERVAL) {
-    mqttClient.publish(availability_topic, "online", true);
+    mqttClient.publish(availability_topic.c_str(), "online", true);
     lastAvailabilityReport = millis();
     Serial.println("上报在线状态");
   }
