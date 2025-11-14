@@ -2,6 +2,7 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>  // 需要安装 ArduinoJson 库
 
 Preferences prefs;
 WebServer server(80);
@@ -20,11 +21,11 @@ String deviceDescription = "MQTT Relay Device";
 
 // MQTT 配置
 const char* mqtt_server = "8.153.160.138";
-const char* mqtt_client_id = "txkj_desktop_relay";
-const char* state_topic = "txkj/jokker_desktop/relay/state";
-const char* command_topic = "txkj/jokker_desktop/relay/command";
-const char* availability_topic = "txkj/jokker_desktop/relay/availability";
-const char* ha_config_topic = "homeassistant/switch/txkj_jokker_desktop_relay/config";
+const char* mqtt_client_id = "lvdi_desktop_relay";
+const char* state_topic = "lvdi/jokker_desktop/relay/state";
+const char* command_topic = "lvdi/jokker_desktop/relay/command";
+const char* availability_topic = "lvdi/jokker_desktop/relay/availability";
+const char* ha_config_topic = "homeassistant/switch/lvdi_jokker_desktop_relay/config";
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -73,7 +74,48 @@ void loadDeviceConfig() {
 String getUniqueID() {
   String mac = WiFi.macAddress();
   mac.replace(":", "");
-  return mac;
+  return "relay_" + mac;
+}
+
+// =========================
+// MQTT HA 自动发现配置生成
+// =========================
+String generateHADiscoveryConfig() {
+  String uid = getUniqueID();
+  
+  // 使用 ArduinoJson 库生成正确的 JSON
+  DynamicJsonDocument doc(1024);
+  
+  // 基本配置
+  doc["name"] = deviceDescription;
+  doc["unique_id"] = uid;
+  doc["state_topic"] = state_topic;
+  doc["command_topic"] = command_topic;
+  doc["availability_topic"] = availability_topic;
+  doc["payload_available"] = "online";
+  doc["payload_not_available"] = "offline";
+  doc["payload_on"] = "ON";
+  doc["payload_off"] = "OFF";
+  doc["state_on"] = "ON";
+  doc["state_off"] = "OFF";
+  doc["optimistic"] = false;
+  doc["retain"] = true;
+  
+  // 设备信息
+  JsonObject device = doc.createNestedObject("device");
+  device["identifiers"][0] = uid;
+  device["name"] = locationName;
+  device["manufacturer"] = "CustomMQTTDevice";
+  device["model"] = "MQTTRelayV1";
+  device["sw_version"] = "1.0";
+  
+  String configPayload;
+  serializeJson(doc, configPayload);
+  
+  Serial.println("Generated HA Discovery Config:");
+  Serial.println(configPayload);
+  
+  return configPayload;
 }
 
 // =========================
@@ -99,9 +141,10 @@ void startAPMode() {
   Serial.println("Starting AP mode...");
   WiFi.mode(WIFI_AP);
   WiFi.softAP("ESP32-Setup", "12345678");
+  Serial.print("AP IP: ");
   Serial.println(WiFi.softAPIP());
 
-  String htmlPage =
+  String htmlPage = 
     "<!DOCTYPE html><html><head>"
     "<meta name='viewport' content='width=device-width, initial-scale=1'>"
     "<style>"
@@ -113,13 +156,13 @@ void startAPMode() {
     "border:none;border-radius:5px;font-size:16px;}"
     "</style></head><body>"
     "<div class='card'>"
-    "<h2>WiFi CONFIG </h2>"
+    "<h2>WiFi 配置</h2>"
     "<form method='POST' action='/save'>"
-    "<input name='ssid' placeholder='WiFi Name (SSID)' required>"
-    "<input name='pass' type='password' placeholder='WiFi Password' required>"
-    "<input name='location' placeholder='Location'>"
-    "<input name='description' placeholder='Describe'>"
-    "<button type='submit'>Save And Restart</button>"
+    "<input name='ssid' placeholder='WiFi 名称 (SSID)' required>"
+    "<input name='pass' type='password' placeholder='WiFi 密码' required>"
+    "<input name='location' placeholder='设备位置' value='" + locationName + "'>"
+    "<input name='description' placeholder='设备描述' value='" + deviceDescription + "'>"
+    "<button type='submit'>保存并重启</button>"
     "</form></div></body></html>";
 
   server.on("/", HTTP_GET, [htmlPage]() {
@@ -131,14 +174,22 @@ void startAPMode() {
     String pass = server.arg("pass");
     String location = server.arg("location");
     String description = server.arg("description");
-    saveWifiConfig(ssid, pass);
-    saveDeviceConfig(location, description);
-    server.send(200, "text/html", "Save Success, Machine Will Restart Soon");
-    delay(1000);
-    ESP.restart();
+    
+    if (ssid.length() > 0 && pass.length() > 0) {
+      saveWifiConfig(ssid, pass);
+      saveDeviceConfig(location, description);
+      server.send(200, "text/html", 
+        "<html><body><h2>配置保存成功!</h2><p>设备即将重启...</p></body></html>");
+      delay(2000);
+      ESP.restart();
+    } else {
+      server.send(400, "text/html", 
+        "<html><body><h2>错误!</h2><p>SSID 和密码不能为空</p></body></html>");
+    }
   });
 
   server.begin();
+  Serial.println("HTTP server started");
 }
 
 // =========================
@@ -150,72 +201,58 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     msg += (char)payload[i];
   }
   msg.trim();
-  Serial.printf("MQTT Received [%s]: %s\n", topic, msg.c_str());
+  
+  Serial.printf("MQTT 收到消息 [%s]: %s\n", topic, msg.c_str());
 
   if (String(topic) == command_topic) {
     if (msg == "ON") {
       digitalWrite(RELAY_PIN, HIGH);
       relayState = true;
+      Serial.println("继电器: ON");
     } else if (msg == "OFF") {
       digitalWrite(RELAY_PIN, LOW);
       relayState = false;
+      Serial.println("继电器: OFF");
     }
+    
+    // 发布状态更新
     mqttClient.publish(state_topic, relayState ? "ON" : "OFF", true);
   }
 }
 
 // =========================
-// MQTT 初始化 & HA 自动发现
+// MQTT 重连和 HA 自动发现
 // =========================
-void setupMQTT() {
-  mqttClient.setServer(mqtt_server, 1883);
-  mqttClient.setCallback(mqttCallback);
-
-  loadDeviceConfig();
-  String uid = getUniqueID();
-
+void reconnectMQTT() {
   while (!mqttClient.connected()) {
-    Serial.println("Connecting MQTT...");
-    if (mqttClient.connect(mqtt_client_id, NULL, NULL, availability_topic, 0, true, "offline")) {
-      Serial.println("MQTT connected");
+    Serial.print("尝试连接 MQTT...");
+    
+    if (mqttClient.connect(mqtt_client_id, availability_topic, 0, true, "offline")) {
+      Serial.println("MQTT 连接成功!");
       
-      // 等待数据稳定
-      delay(500);
-      
+      // 订阅命令主题
       mqttClient.subscribe(command_topic);
-
-      // 上报在线
+      Serial.println("已订阅命令主题: " + String(command_topic));
+      
+      // 发布在线状态
       mqttClient.publish(availability_topic, "online", true);
-
+      
       // 发布 Home Assistant 自动发现配置
-      String configPayload = "{"
-        "\"name\": \"" + deviceDescription + "\","
-        "\"unique_id\": \"" + uid + "\","
-        "\"state_topic\": \"" + String(state_topic) + "\","
-        "\"command_topic\": \"" + String(command_topic) + "\","
-        "\"device\": {"
-            "\"identifiers\": [\"" + uid + "\"],"
-            "\"name\": \"" + locationName + "\","
-            "\"manufacturer\": \"CustomMQTTDevice\","
-            "\"model\": \"MQTTRelayV1\""
-        "},"
-        "\"payload_on\": \"ON\","
-        "\"payload_off\": \"OFF\","
-        "\"state_on\": \"ON\","
-        "\"state_off\": \"OFF\","
-        "\"optimistic\": false,"
-        "\"availability_topic\": \"" + String(availability_topic) + "\","
-        "\"payload_available\": \"online\","
-        "\"payload_not_available\": \"offline\""
-      "}";
-      mqttClient.publish(ha_config_topic, configPayload.c_str(), true);
+      String configPayload = generateHADiscoveryConfig();
+      if (mqttClient.publish(ha_config_topic, configPayload.c_str(), true)) {
+        Serial.println("HA 自动发现配置发布成功!");
+      } else {
+        Serial.println("HA 自动发现配置发布失败!");
+      }
+      
+      // 发布当前状态
       mqttClient.publish(state_topic, relayState ? "ON" : "OFF", true);
-
-      Serial.println(configPayload.c_str());
-
+      
     } else {
-      Serial.println("MQTT connect failed → retrying in 1s");
-      delay(1000);
+      Serial.print("MQTT 连接失败, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" 5秒后重试...");
+      delay(5000);
     }
   }
 }
@@ -223,21 +260,33 @@ void setupMQTT() {
 // =========================
 // WiFi 连接
 // =========================
-void connectWiFiForever() {
-  Serial.printf("Connecting to %s\n", ssidSaved.c_str());
+void connectWiFi() {
+  Serial.printf("连接 WiFi: %s\n", ssidSaved.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssidSaved.c_str(), passSaved.c_str());
 
+  unsigned long startTime = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (checkBootLongPress()) {
-      Serial.println("BOOT long press during WiFi retry → Enter AP mode");
+    if (millis() - startTime > 30000) { // 30秒超时
+      Serial.println("WiFi 连接超时，进入 AP 模式");
       clearWifiConfig();
       ESP.restart();
+      return;
     }
-    Serial.println("WiFi connect failed → retrying");
+    
+    if (checkBootLongPress()) {
+      Serial.println("检测到 BOOT 长按，进入 AP 模式");
+      clearWifiConfig();
+      ESP.restart();
+      return;
+    }
+    
+    Serial.print(".");
     delay(1000);
   }
-  Serial.print("Connected! IP: ");
+  
+  Serial.println();
+  Serial.print("WiFi 连接成功! IP: ");
   Serial.println(WiFi.localIP());
 }
 
@@ -246,48 +295,64 @@ void connectWiFiForever() {
 // =========================
 void setup() {
   Serial.begin(115200);
+  delay(1000);
+  
+  Serial.println("\n=== ESP32 MQTT 继电器启动 ===");
+  
   pinMode(BOOT_PIN, INPUT_PULLUP);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
 
+  // 加载配置
   loadWifiConfig();
+  loadDeviceConfig();
+  
+  Serial.println("设备信息:");
+  Serial.println("  MAC: " + WiFi.macAddress());
+  Serial.println("  位置: " + locationName);
+  Serial.println("  描述: " + deviceDescription);
 
-  if (checkBootLongPress()) {
-    Serial.println("BOOT long press detected (boot stage)");
-    clearWifiConfig();
+  // 检查是否进入配网模式
+  if (checkBootLongPress() || ssidSaved == "" || passSaved == "") {
+    Serial.println("进入 AP 配网模式");
     shouldEnterAP = true;
-  }
-
-  if (ssidSaved == "" || passSaved == "") {
-    Serial.println("WiFi config empty → AP mode");
-    shouldEnterAP = true;
-  }
-
-  if (shouldEnterAP) {
     startAPMode();
   } else {
-    connectWiFiForever();
-    setupMQTT();
+    connectWiFi();
+    
+    // 设置 MQTT
+    mqttClient.setServer(mqtt_server, 1883);
+    mqttClient.setCallback(mqttCallback);
+    mqttClient.setBufferSize(2048); // 增加缓冲区大小
+    
+    reconnectMQTT();
   }
 }
 
 void loop() {
-  if (shouldEnterAP) server.handleClient();
+  if (shouldEnterAP) {
+    server.handleClient();
+    return;
+  }
 
-  if (!shouldEnterAP) {
-    mqttClient.loop();
+  // 处理 MQTT
+  if (!mqttClient.connected()) {
+    reconnectMQTT();
+  }
+  mqttClient.loop();
 
-    // 定期上报在线状态
-    if (millis() - lastAvailabilityReport > AVAILABILITY_INTERVAL) {
-      mqttClient.publish(availability_topic, "online", true);
-      lastAvailabilityReport = millis();
-    }
+  // 定期上报在线状态
+  if (millis() - lastAvailabilityReport > AVAILABILITY_INTERVAL) {
+    mqttClient.publish(availability_topic, "online", true);
+    lastAvailabilityReport = millis();
+    Serial.println("上报在线状态");
+  }
 
-    // 支持 BOOT 长按进入 AP
-    if (checkBootLongPress()) {
-      Serial.println("BOOT long press → Enter AP mode");
-      clearWifiConfig();
-      ESP.restart();
-    }
+  // 检查 BOOT 长按
+  if (checkBootLongPress()) {
+    Serial.println("检测到 BOOT 长按，清除配置并重启");
+    clearWifiConfig();
+    delay(1000);
+    ESP.restart();
   }
 }
