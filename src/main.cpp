@@ -7,25 +7,31 @@
 Preferences prefs;
 WebServer server(80);
 
-#define BOOT_PIN 0
+#define BOOT_PIN 9          // 用于初始化的按键 注意 esp32S3 是 0 ， esp32c3 是 9
 #define BOOT_HOLD_MS 3000
-#define RELAY_PIN 2   // 继电器控制引脚
+#define RELAY_PIN 2         // 继电器控制引脚
 
 String ssidSaved = "";
 String passSaved = "";
 bool shouldEnterAP = false;
 
+String getUniqueID();
+
+String board_name = ESP.getChipModel();
+
+String unique_id = getUniqueID();
+
 // 设备信息 - 使用唯一标识
-String deviceName = "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX);
-String entityName = "Relay Switch";                // HA 中代表一个具体功能或状态的基本单位，例如一盏灯、一个传感器。
-String deviceLocation = "Living Room";      
+String deviceName = board_name + "_" + unique_id;
+String entityName = "Relay Switch";                         // HA 中代表一个具体功能或状态的基本单位，例如一盏灯、一个传感器。
+String deviceLocation = "unkonw";      
 
 // MQTT 配置 - 使用唯一Client ID
 String mqtt_server = "8.153.160.138";
-String mqtt_client_id = "relay_" + String((uint32_t)ESP.getEfuseMac(), HEX);  // MQTT 协议规定：相同的 Client ID 不能同时在线
+String mqtt_client_id = board_name + "_" + unique_id;  // MQTT 协议规定：相同的 Client ID 不能同时在线
 
 // AP 配置 - 使用唯一AP名称
-String ap_ssid = "ESP32-Relay-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+String ap_ssid = board_name + "_" + unique_id;
 String ap_password = "12345678";
 
 // MQTT 主题（动态生成）
@@ -74,28 +80,31 @@ void saveDeviceConfig(const String &name, const String &description, const Strin
 
 void loadDeviceConfig() {
   prefs.begin("device", true);
-  deviceName = prefs.getString("name", "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX));
+  deviceName = prefs.getString("name", "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4));
   entityName = prefs.getString("description", "Relay Switch");
   deviceLocation = prefs.getString("location", "Unknow Location");  // 添加位置加载
   prefs.end();
 }
 
-// 获取唯一标识符
 String getUniqueID() {
-  return "relay_" + String((uint32_t)ESP.getEfuseMac(), HEX);
-}
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
 
-String getShortID() {
-  return String((uint32_t)ESP.getEfuseMac(), HEX);
+  char buf[13];
+  sprintf(buf, "%02X%02X%02X%02X%02X%02X",
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  return String(buf);  // e.g. A1B2C3D4E5F6
 }
 
 // 初始化MQTT主题
 void setupTopics() {
-  String uid = getShortID();
-  state_topic = "homeassistant/switch/relay_" + uid + "/state";
-  command_topic = "homeassistant/switch/relay_" + uid + "/command";
-  availability_topic = "homeassistant/switch/relay_" + uid + "/availability";
-  ha_config_topic = "homeassistant/switch/relay_" + uid + "/config";
+  String uid = getUniqueID();
+  String board_name = ESP.getChipModel();
+  state_topic = "homeassistant/switch/" + board_name + "_" + uid + "/state";
+  command_topic = "homeassistant/switch/" + board_name + "_" + uid + "/command";
+  availability_topic = "homeassistant/switch/"+ board_name + "_" + uid + "/availability";
+  ha_config_topic = "homeassistant/switch/"+ board_name + "_" + uid + "/config";
   
   Serial.println("MQTT主题配置:");
   Serial.println("  状态主题: " + state_topic);
@@ -182,7 +191,7 @@ void startAPMode() {
     "<!DOCTYPE html><html><head>"
     "<meta charset='UTF-8'>"
     "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-    "<title>ESP32 Relay配置 - " + getShortID() + "</title>"
+    "<title>ESP32 Relay配置 - " + getUniqueID() + "</title>"
     "<style>"
     "body{font-family:'Microsoft YaHei',Arial,sans-serif;background:#f2f2f2;text-align:center;padding-top:60px;}"
     ".card{background:white;margin:0 auto;padding:25px;border-radius:10px;max-width:350px;"
@@ -197,7 +206,7 @@ void startAPMode() {
     "</style></head><body>"
     "<div class='card'>"
     "<h2>ESP32 Relay 配置</h2>"
-    "<p style='color:#666;font-size:14px;'>设备ID: " + getShortID() + "</p>"
+    "<p style='color:#666;font-size:14px;'>设备ID: " + getUniqueID() + "</p>"
     "<form method='POST' action='/save'>"
     "<input name='ssid' placeholder='WiFi 名称 (SSID)' required>"
     "<input name='pass' placeholder='WiFi 密码' required>"
@@ -370,7 +379,7 @@ void setup() {
   
   Serial.println("\n=== ESP32 MQTT 继电器启动 ===");
   Serial.println("设备唯一ID: " + getUniqueID());
-  Serial.println("短ID: " + getShortID());
+  Serial.println("短ID: " + getUniqueID());
   
   pinMode(BOOT_PIN, INPUT_PULLUP);
   pinMode(RELAY_PIN, OUTPUT);

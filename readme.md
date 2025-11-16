@@ -58,5 +58,6 @@ python3 ./tools/read_csv.py /dev/cu.wchusbserial5A7B1617701
 
 * 当前使用两个板子同时通电的时候两块板子互相影响，不知道是哪里出现了问题 （应该是使用了同一个 client_id 导致的）
 
+* 用于初始化的 boot 按键 注意 esp32S3 是 0 ， esp32c3 是 9
 
-
+* 获取的 mac 地址可能是重复的，获取 WiFi 的 mac 地址，是唯一的
