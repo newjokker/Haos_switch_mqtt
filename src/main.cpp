@@ -16,7 +16,7 @@ String passSaved = "";
 bool shouldEnterAP = false;
 
 // 设备信息 - 使用唯一标识
-String deviceName = "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4);
+String deviceName = "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX);
 String entityName = "Relay Switch";                // HA 中代表一个具体功能或状态的基本单位，例如一盏灯、一个传感器。
 String deviceLocation = "Living Room";      
 
@@ -25,7 +25,7 @@ String mqtt_server = "8.153.160.138";
 String mqtt_client_id = "relay_" + String((uint32_t)ESP.getEfuseMac(), HEX);  // MQTT 协议规定：相同的 Client ID 不能同时在线
 
 // AP 配置 - 使用唯一AP名称
-String ap_ssid = "ESP32-Relay-" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4);
+String ap_ssid = "ESP32-Relay-" + String((uint32_t)ESP.getEfuseMac(), HEX);
 String ap_password = "12345678";
 
 // MQTT 主题（动态生成）
@@ -74,7 +74,7 @@ void saveDeviceConfig(const String &name, const String &description, const Strin
 
 void loadDeviceConfig() {
   prefs.begin("device", true);
-  deviceName = prefs.getString("name", "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4));
+  deviceName = prefs.getString("name", "Relay_" + String((uint32_t)ESP.getEfuseMac(), HEX));
   entityName = prefs.getString("description", "Relay Switch");
   deviceLocation = prefs.getString("location", "Unknow Location");  // 添加位置加载
   prefs.end();
@@ -86,7 +86,7 @@ String getUniqueID() {
 }
 
 String getShortID() {
-  return String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 6);
+  return String((uint32_t)ESP.getEfuseMac(), HEX);
 }
 
 // 初始化MQTT主题
