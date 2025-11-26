@@ -9,7 +9,7 @@ WebServer server(80);
 
 #define BOOT_PIN 9          // 用于初始化的按键 注意 esp32S3 是 0 ， esp32c3 是 9
 #define BOOT_HOLD_MS 3000
-#define RELAY_PIN 2         // 继电器控制引脚
+#define RELAY_PIN 8         // 继电器控制引脚
 
 String ssidSaved = "";
 String passSaved = "";
